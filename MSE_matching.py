@@ -5,23 +5,29 @@ import csv
 from pathlib import Path
 
 
+# Порог RMSE: если ошибка меньше или равна этому значению, линия считается прямой
 RMSE_THRESHOLD = 2.0
 
+# Параметры робастной фильтрации: используются для удаления выбросных точек нейросети
 ROBUST_ITERATIONS = 4
 ROBUST_SIGMA = 2.5
 ROBUST_MIN_GATE = 3.0
 
+# Параметры памяти типа линии между кадрами
 SHORT_LINE_Y_SPAN = 140
 TYPE_SWITCH_FRAMES = 2
 
+# Параметры сопоставления линий между соседними кадрами
 MAX_MISSED_FRAMES = 3
 MAX_ANGLE_DIFF_DEG = 12
 MAX_X_DIFF_PX = 120
 MAX_Y_MID_DIFF_PX = 220
 
+# Параметры выбора осевой линии
 MIN_AXIS_STABLE_FRAMES = 3
 MIN_AXIS_Y_SPAN = 80
 
+# Входные и выходные папки
 IMAGES_FOLDER = Path("images")
 LINES_FOLDER = Path("result_lines")
 OUTPUT_FOLDER = Path("tracked_marked_images")
@@ -31,6 +37,7 @@ OUTPUT_FOLDER.mkdir(exist_ok=True)
 
 
 def read_lines_txt(path):
+    # Читает txt-файл нейросети и преобразует каждую строку в набор точек линии
     lines = []
 
     with open(path, "r", encoding="utf-8") as f:
@@ -52,6 +59,7 @@ def read_lines_txt(path):
 
 
 def fit_line_mnk(points, mask=None):
+    # Строит прямую x = a * y + b методом наименьших квадратов
     if mask is None:
         used_points = points
     else:
@@ -70,6 +78,7 @@ def fit_line_mnk(points, mask=None):
 
 
 def calc_distances(points, a, b):
+    # Считает расстояния от точек линии до найденной прямой
     x = points[:, 0]
     y = points[:, 1]
 
@@ -80,6 +89,7 @@ def calc_distances(points, a, b):
 
 
 def robust_fit_line(points):
+    # Робастный МНК: сначала строит прямую, затем отбрасывает выбросные точки
     mask = torch.ones(len(points), dtype=torch.bool)
 
     for _ in range(ROBUST_ITERATIONS):
@@ -117,6 +127,7 @@ def robust_fit_line(points):
 
 
 def analyse_line(points, line_index):
+    # Анализирует одну линию: RMSE, тип линии, длина по Y, угол и другие признаки
     a, b, rmse, inlier_mask = robust_fit_line(points)
 
     used_points = points[inlier_mask]
@@ -160,6 +171,7 @@ def analyse_line(points, line_index):
 
 
 def analyse_file(path):
+    # Анализирует все линии из одного txt-файла
     lines = read_lines_txt(path)
     results = []
 
@@ -170,6 +182,7 @@ def analyse_file(path):
 
 
 def get_file_key(file_path):
+    # Получает имя кадра без служебных окончаний .onnxres.txt / .lines.txt
     name = file_path.name
     name = name.replace(".onnxres.txt", "")
     name = name.replace(".lines.txt", "")
@@ -178,6 +191,7 @@ def get_file_key(file_path):
 
 
 def find_image_by_key(key):
+    # Ищет изображение, соответствующее текущему txt-файлу
     for ext in [".png", ".jpg", ".jpeg"]:
         image_path = IMAGES_FOLDER / f"{key}{ext}"
 
@@ -188,6 +202,7 @@ def find_image_by_key(key):
 
 
 def frame_sort_key(path):
+    # Сортировка кадров по числу в имени файла
     parts = "".join(ch if ch.isdigit() else " " for ch in path.stem).split()
 
     if len(parts) > 0:
@@ -197,6 +212,7 @@ def frame_sort_key(path):
 
 
 def line_match_score(old_line, new_line):
+    # Считает похожесть линии из прошлого кадра и линии из текущего кадра
     angle_diff = abs(old_line["angle_deg"] - new_line["angle_deg"])
     y_mid_diff = abs(old_line["y_mid"] - new_line["y_mid"])
 
@@ -228,6 +244,7 @@ def line_match_score(old_line, new_line):
 
 
 def update_track_type(track, line):
+    # Обновляет стабильный тип линии с учетом памяти трека
     raw_type = line["raw_type"]
     stable_type = track["stable_type"]
 
@@ -259,6 +276,7 @@ def update_track_type(track, line):
 
 
 def draw_lines(image, lines, frame_name):
+    # Рисует линии на изображении: зеленая — осевая, синяя — прямая, красная — кривая
     height, width = image.shape[:2]
 
     for line in lines:
@@ -328,6 +346,7 @@ def draw_lines(image, lines, frame_name):
     return image
 
 
+# Состояние трекинга между кадрами
 tracks = []
 next_track_id = 0
 main_axis_track_id = None
@@ -335,12 +354,14 @@ csv_rows = []
 
 txt_files = sorted(LINES_FOLDER.glob("*.txt"), key=frame_sort_key)
 
+
 for txt_path in txt_files:
     key = get_file_key(txt_path)
     lines = analyse_file(txt_path)
 
     used_lines = set()
 
+    # Сопоставляем найденные линии с уже существующими треками
     for track in tracks:
         best_i = None
         best_score = None
@@ -375,6 +396,7 @@ for txt_path in txt_files:
             track["missed"] += 1
             track["consecutive_hits"] = 0
 
+    # Для новых линий создаем новые треки
     for i, line in enumerate(lines):
         if i in used_lines:
             continue
@@ -405,6 +427,7 @@ for txt_path in txt_files:
 
     axis_line = None
 
+    # Если осевая линия уже была найдена раньше, стараемся продолжать тот же трек
     if main_axis_track_id is not None:
         for line in lines:
             if (
@@ -414,6 +437,7 @@ for txt_path in txt_files:
                 axis_line = line
                 break
 
+    # Если осевая не найдена по старому треку, выбираем наиболее стабильную линию
     if axis_line is None:
         candidates = []
 
@@ -502,6 +526,7 @@ for txt_path in txt_files:
     print("-" * 40)
 
 
+# Сохраняем таблицу с результатами классификации и трекинга
 with open(CSV_PATH, "w", newline="", encoding="utf-8") as f:
     fieldnames = [
         "frame",

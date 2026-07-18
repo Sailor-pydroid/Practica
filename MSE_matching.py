@@ -1,7 +1,6 @@
 import torch
 import cv2
 import math
-import csv
 from pathlib import Path
 
 
@@ -31,7 +30,6 @@ MIN_AXIS_Y_SPAN = 80
 IMAGES_FOLDER = Path("images")
 LINES_FOLDER = Path("result_lines")
 OUTPUT_FOLDER = Path("tracked_marked_images")
-CSV_PATH = "tracking_result.csv"
 
 OUTPUT_FOLDER.mkdir(exist_ok=True)
 
@@ -350,7 +348,6 @@ def draw_lines(image, lines, frame_name):
 tracks = []
 next_track_id = 0
 main_axis_track_id = None
-csv_rows = []
 
 txt_files = sorted(LINES_FOLDER.glob("*.txt"), key=frame_sort_key)
 
@@ -496,23 +493,6 @@ for txt_path in txt_files:
             "|", line["memory_reason"]
         )
 
-        csv_rows.append({
-            "frame": key,
-            "line_index": line["line_index"],
-            "track_id": line["track_id"],
-            "raw_type": line["raw_type"],
-            "final_type": line["final_type"],
-            "rmse": line["rmse"],
-            "angle_deg": line["angle_deg"],
-            "x_mid": line["x_mid"],
-            "y_mid": line["y_mid"],
-            "y_span": line["y_span"],
-            "point_count": line["point_count"],
-            "inlier_count": line["inlier_count"],
-            "is_axis": line["is_axis"],
-            "memory_reason": line["memory_reason"]
-        })
-
     image_path = find_image_by_key(key)
 
     if image_path is not None:
@@ -526,30 +506,5 @@ for txt_path in txt_files:
     print("-" * 40)
 
 
-# Сохраняем таблицу с результатами классификации и трекинга
-with open(CSV_PATH, "w", newline="", encoding="utf-8") as f:
-    fieldnames = [
-        "frame",
-        "line_index",
-        "track_id",
-        "raw_type",
-        "final_type",
-        "rmse",
-        "angle_deg",
-        "x_mid",
-        "y_mid",
-        "y_span",
-        "point_count",
-        "inlier_count",
-        "is_axis",
-        "memory_reason"
-    ]
-
-    writer = csv.DictWriter(f, fieldnames=fieldnames)
-    writer.writeheader()
-    writer.writerows(csv_rows)
-
-
 print("Готово")
 print("Размеченные изображения:", OUTPUT_FOLDER)
-print("CSV:", CSV_PATH)
